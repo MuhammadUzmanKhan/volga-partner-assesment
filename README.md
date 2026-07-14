@@ -1,6 +1,6 @@
 # Transcription Pipeline
 
-Batch pipeline: audio file → local Whisper transcription → LLM structured extraction
+Batch pipeline: audio file → local Whisper transcription → Gemini structured extraction
 (summary, action items, entities) → JSON output.
 
 Design rationale: [docs/superpowers/specs/2026-07-14-transcription-pipeline-design.md](docs/superpowers/specs/2026-07-14-transcription-pipeline-design.md).
@@ -9,7 +9,7 @@ Design rationale: [docs/superpowers/specs/2026-07-14-transcription-pipeline-desi
 
 ```bash
 pip install -r requirements-dev.txt
-export ANTHROPIC_API_KEY=...   # only needed for real extraction runs
+export GEMINI_API_KEY=...   # only needed for real extraction runs
 ```
 
 ## Run
@@ -61,7 +61,7 @@ pytest -m slow         # also runs real faster-whisper inference on a generated 
 audio file
   → AudioLoader (validate)
   → Transcriber (Whisper, local)      → Transcript
-  → Extractor (LLM, structured JSON)  → StructuredResult
+  → Extractor (Gemini, structured JSON) → StructuredResult
   → ResultAssembler                   → PipelineResult → JSON
 ```
 

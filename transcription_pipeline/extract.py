@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
-from typing import Protocol
+from typing import Callable, Protocol
 
 from pydantic import BaseModel, ValidationError
 
@@ -30,13 +31,45 @@ class Extractor(Protocol):
     def extract(self, transcript: Transcript) -> StructuredResult: ...
 
 
-class LLMExtractor:
-    """Structured extraction over a transcript via the Anthropic API."""
+def _run_with_retries(
+    get_raw_text: Callable[[str], str], max_retries: int, backoff_base_s: float
+) -> StructuredResult:
+    """Shared retry policy: one corrective re-prompt on malformed JSON, exponential
+    backoff on transient errors. `get_raw_text(correction)` must return the raw model
+    response text; `correction` is prepended to the prompt on the retry after bad JSON."""
+    last_error: Exception | None = None
+    correction = ""
+
+    for attempt in range(max_retries):
+        try:
+            raw_text = get_raw_text(correction)
+            data = json.loads(raw_text)
+            return StructuredResult.model_validate(data)
+
+        except (json.JSONDecodeError, ValidationError) as exc:
+            last_error = exc
+            correction = (
+                f"Your previous response was invalid ({exc}). "
+                "Respond with JSON only, matching the required schema.\n\n"
+            )
+            continue
+
+        except Exception as exc:  # transient API errors: rate limit, timeout, connection
+            last_error = exc
+            if attempt < max_retries - 1:
+                time.sleep(backoff_base_s * (2**attempt))
+            continue
+
+    raise ExtractionError(f"Extraction failed after {max_retries} attempts: {last_error}") from last_error
+
+
+class GeminiExtractor:
+    """Structured extraction over a transcript via the Google Gemini API."""
 
     def __init__(
         self,
         client=None,
-        model: str = "claude-sonnet-5",
+        model: str = "gemini-2.0-flash",
         max_retries: int = 3,
         backoff_base_s: float = 1.0,
     ):
@@ -48,50 +81,32 @@ class LLMExtractor:
     def _get_client(self):
         if self._client is None:
             try:
-                import anthropic
+                import google.generativeai as genai
             except ImportError as exc:
                 raise ExtractionError(
-                    "anthropic package is not installed. Run `pip install anthropic`."
+                    "google-generativeai package is not installed. "
+                    "Run `pip install google-generativeai`."
                 ) from exc
-            self._client = anthropic.Anthropic()
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                raise ExtractionError("GEMINI_API_KEY environment variable is not set.")
+            genai.configure(api_key=api_key)
+            self._client = genai.GenerativeModel(
+                self._model, system_instruction=EXTRACTION_SYSTEM_PROMPT
+            )
         return self._client
 
     def extract(self, transcript: Transcript) -> StructuredResult:
-        client = self._get_client()
-        last_error: Exception | None = None
-        correction = ""
+        model = self._get_client()
 
-        for attempt in range(self._max_retries):
-            try:
-                response = client.messages.create(
-                    model=self._model,
-                    max_tokens=1024,
-                    system=EXTRACTION_SYSTEM_PROMPT,
-                    messages=[
-                        {"role": "user", "content": f"{correction}Transcript:\n\n{transcript.text}"}
-                    ],
-                )
-                data = json.loads(response.content[0].text)
-                return StructuredResult.model_validate(data)
+        def get_raw_text(correction: str) -> str:
+            response = model.generate_content(
+                f"{correction}Transcript:\n\n{transcript.text}",
+                generation_config={"response_mime_type": "application/json"},
+            )
+            return response.text
 
-            except (json.JSONDecodeError, ValidationError) as exc:
-                # malformed response: one corrective re-prompt, no backoff sleep needed
-                last_error = exc
-                correction = (
-                    f"Your previous response was invalid ({exc}). "
-                    "Respond with JSON only, matching the required schema.\n\n"
-                )
-                continue
-
-            except Exception as exc:  # transient API errors: rate limit, timeout, connection
-                last_error = exc
-                if attempt < self._max_retries - 1:
-                    time.sleep(self._backoff_base_s * (2**attempt))
-                continue
-
-        raise ExtractionError(
-            f"Extraction failed after {self._max_retries} attempts: {last_error}"
-        ) from last_error
+        return _run_with_retries(get_raw_text, self._max_retries, self._backoff_base_s)
 
 
 class MockExtractor:

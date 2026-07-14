@@ -6,7 +6,7 @@ from typing import Literal
 
 from .audio import load_audio
 from .errors import ExtractionError
-from .extract import Extractor, LLMExtractor, StructuredResult
+from .extract import Extractor, GeminiExtractor, StructuredResult
 from .transcribe import Transcriber, Transcript, WhisperTranscriber
 
 Status = Literal["ok", "empty", "partial_failure"]
@@ -41,7 +41,7 @@ def run_pipeline(
     extractor: Extractor | None = None,
 ) -> PipelineResult:
     transcriber = transcriber or WhisperTranscriber()
-    extractor = extractor or LLMExtractor()
+    extractor = extractor or GeminiExtractor()
 
     audio = load_audio(audio_path)  # raises InvalidAudioError - no partial output on bad input
 
