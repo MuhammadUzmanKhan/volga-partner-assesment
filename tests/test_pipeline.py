@@ -1,6 +1,6 @@
 import pytest
 
-from transcription_pipeline.errors import ExtractionError, InvalidAudioError
+from transcription_pipeline.errors import ExtractionError, InvalidAudioError, TranscriptionError
 from transcription_pipeline.extract import MockExtractor
 from transcription_pipeline.pipeline import run_pipeline
 from transcription_pipeline.transcribe import MockTranscriber, Transcript
@@ -45,3 +45,14 @@ def test_pipeline_invalid_audio_raises(tmp_path):
 
     with pytest.raises(InvalidAudioError):
         run_pipeline(missing)
+
+
+def test_pipeline_transcription_failure_propagates(sample_wav):
+    class FailingTranscriber:
+        def transcribe(self, audio):
+            raise TranscriptionError("model crashed")
+
+    # No transcript at all -> nothing to salvage, error must propagate rather than
+    # being swallowed into a status field.
+    with pytest.raises(TranscriptionError, match="model crashed"):
+        run_pipeline(sample_wav, transcriber=FailingTranscriber(), extractor=MockExtractor())

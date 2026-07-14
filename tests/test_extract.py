@@ -1,3 +1,4 @@
+import builtins
 import json
 from types import SimpleNamespace
 
@@ -80,3 +81,44 @@ def test_extract_retries_transient_error_then_succeeds(monkeypatch):
     result = extractor.extract(TRANSCRIPT)
 
     assert result.summary == "ok"
+
+
+def test_extract_recovers_after_schema_validation_error():
+    # valid JSON, but entities don't match the schema (list of strings, not objects)
+    invalid_schema_payload = {"summary": "ok", "action_items": [], "entities": ["not-a-dict"]}
+    valid_payload = {"summary": "ok", "action_items": [], "entities": []}
+    client = FakeModel([_response(invalid_schema_payload), _response(valid_payload)])
+    extractor = GeminiExtractor(client=client)
+
+    result = extractor.extract(TRANSCRIPT)
+
+    assert result.summary == "ok"
+
+
+def test_extract_missing_api_key_raises_without_network_call(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    extractor = GeminiExtractor()  # no client injected -> real _get_client() path
+
+    with pytest.raises(ExtractionError, match="GEMINI_API_KEY"):
+        extractor.extract(TRANSCRIPT)
+
+
+def test_extract_missing_dependency(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
+    real_import = builtins.__import__
+
+    # sys.modules-based faking doesn't reliably force ImportError here: "google" is a
+    # namespace package, and once `genai` has resolved as an attribute on it (from any
+    # earlier import in the process), `from google import genai` stops consulting
+    # sys.modules at all. Intercepting __import__ itself is deterministic regardless
+    # of caching state.
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "google" and fromlist and "genai" in fromlist:
+            raise ImportError("simulated: google-genai not installed")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    extractor = GeminiExtractor()
+
+    with pytest.raises(ExtractionError, match="not installed"):
+        extractor.extract(TRANSCRIPT)
