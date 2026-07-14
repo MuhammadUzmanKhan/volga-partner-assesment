@@ -9,7 +9,7 @@ Take-home exercise: convert audio to text and process the result for downstream 
 - **Downstream use**: structured extraction — summary + action items + named entities, for later search/analytics use.
 - **STT engine**: local, open-source — Whisper via `faster-whisper`. No API key / network dependency for the transcription stage itself.
 - **Processing mode**: batch. Point at an audio file, run end-to-end, emit a result. No streaming/live audio.
-- **Extraction engine**: LLM API call (Anthropic), with a structured JSON schema for the response.
+- **Extraction engine**: LLM API call (originally Anthropic; switched to Google Gemini post-brainstorm due to account/quota availability — see "Post-design changes" below), with a structured JSON schema for the response.
 - **Language/runtime**: Python.
 - **Rigor level**: moderate — modular pipeline stages, real error handling and stage isolation, unit tests with mocks, no queue/infra layer.
 - **Mock data strategy**: a small real (or generated) audio sample for an end-to-end demo run; unit tests mock the STT and LLM calls with canned responses for speed and determinism.
@@ -41,7 +41,7 @@ audio file
 |---|---|
 | `audio.py` | `AudioInput` loader/validator — file exists, extension supported, basic metadata (duration via the audio lib). |
 | `transcribe.py` | `Transcriber` protocol. `WhisperTranscriber` (faster-whisper, local inference). `MockTranscriber` (returns a canned `Transcript` — used in fast tests). |
-| `extract.py` | `Extractor` protocol. `LLMExtractor` (Anthropic API call with a JSON schema / tool-use for structured output, pydantic validation of the response). `MockExtractor` (canned `StructuredResult`). |
+| `extract.py` | `Extractor` protocol. `GeminiExtractor` (Google Gemini API call with a JSON-mode response, pydantic validation of the result). `MockExtractor` (canned `StructuredResult`). |
 | `pipeline.py` | Orchestrator — `run(audio_path) -> PipelineResult`. Wires `Transcriber` + `Extractor` (injected, defaults to real impls), tracks per-stage status, assembles final result. |
 | `cli.py` | Entrypoint: `python -m transcription_pipeline run --audio path.wav --out result.json`. |
 
@@ -84,7 +84,7 @@ A single JSON file per run:
 ## Testing strategy
 
 - `test_pipeline.py` — orchestrator wiring using `MockTranscriber` + `MockExtractor`. Asserts status transitions (`ok`/`empty`/`partial_failure`) and that a downstream failure doesn't erase the transcript already produced.
-- `test_extract.py` — prompt/schema construction, retry-on-malformed-JSON logic, mocked Anthropic client returning both valid and invalid responses.
+- `test_extract.py` — prompt/schema construction, retry-on-malformed-JSON logic, retry-on-schema-validation-error, missing-API-key and missing-SDK error paths, mocked Gemini client returning both valid and invalid responses.
 - `test_transcribe.py` — marked `@slow`; runs real `faster-whisper` inference against a small bundled sample (`tests/fixtures/sample.wav`, a few seconds of speech). One true end-to-end sanity check; skipped in the default fast test run.
 - Default test run: fully mocked, no network or model calls — fast enough for routine use.
 
@@ -99,13 +99,23 @@ transcription_pipeline/
   pipeline.py
   cli.py
 tests/
-  fixtures/sample.wav
+  conftest.py
+  test_audio.py
+  test_cli.py
   test_pipeline.py
   test_extract.py
   test_transcribe.py
 requirements.txt
 README.md
 ```
+
+## Post-design changes
+
+- **Extractor swapped from Anthropic to Gemini** after implementation, at user request (account/quota reasons). `LLMExtractor` → `GeminiExtractor`; the `Extractor` protocol and retry/backoff behavior (factored into a shared `_run_with_retries` helper) were unaffected. Env var: `GEMINI_API_KEY` instead of `ANTHROPIC_API_KEY`.
+- **`.env` support added**: the CLI loads `GEMINI_API_KEY` from a local, gitignored `.env` via `python-dotenv` instead of requiring a manual `export`.
+- **Default model**: `gemini-2.0-flash` returned `429 RESOURCE_EXHAUSTED` (zero free-tier quota) on the account tested against; `gemini-3.1-flash-lite` was confirmed working and set as the default.
+- **`google-generativeai` → `google-genai`**: the former is fully deprecated (no further updates); migrated to the current SDK before shipping.
+- **Test coverage broadened** post-review: `audio.py` and `cli.py` had no dedicated tests originally; added `test_audio.py` and `test_cli.py`, plus edge cases for `transcribe.py` (backend-error wrapping, missing-dependency, lazy-load-once) and `extract.py` (schema-validation-error retry, missing API key, missing SDK).
 
 ## Out of scope
 
