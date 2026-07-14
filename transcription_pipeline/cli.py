@@ -4,11 +4,15 @@ import argparse
 import json
 import sys
 
+from dotenv import load_dotenv
+
 from .errors import InvalidAudioError, TranscriptionError
 from .pipeline import run_pipeline
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()  # picks up GEMINI_API_KEY from a local .env if present
+
     parser = argparse.ArgumentParser(prog="transcription_pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

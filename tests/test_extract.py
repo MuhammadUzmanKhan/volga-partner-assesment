@@ -20,9 +20,7 @@ def _bad_response(text: str):
     return SimpleNamespace(text=text)
 
 
-class FakeModel:
-    """Stands in for genai.GenerativeModel."""
-
+class FakeModels:
     def __init__(self, responses):
         self._responses = list(responses)
 
@@ -31,6 +29,13 @@ class FakeModel:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class FakeModel:
+    """Stands in for genai.Client."""
+
+    def __init__(self, responses):
+        self.models = FakeModels(responses)
 
 
 def test_extract_success_first_try():

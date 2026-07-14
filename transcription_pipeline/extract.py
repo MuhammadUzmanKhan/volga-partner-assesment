@@ -81,28 +81,28 @@ class GeminiExtractor:
     def _get_client(self):
         if self._client is None:
             try:
-                import google.generativeai as genai
+                from google import genai
             except ImportError as exc:
                 raise ExtractionError(
-                    "google-generativeai package is not installed. "
-                    "Run `pip install google-generativeai`."
+                    "google-genai package is not installed. Run `pip install google-genai`."
                 ) from exc
             api_key = os.environ.get("GEMINI_API_KEY")
             if not api_key:
                 raise ExtractionError("GEMINI_API_KEY environment variable is not set.")
-            genai.configure(api_key=api_key)
-            self._client = genai.GenerativeModel(
-                self._model, system_instruction=EXTRACTION_SYSTEM_PROMPT
-            )
+            self._client = genai.Client(api_key=api_key)
         return self._client
 
     def extract(self, transcript: Transcript) -> StructuredResult:
-        model = self._get_client()
+        client = self._get_client()
 
         def get_raw_text(correction: str) -> str:
-            response = model.generate_content(
-                f"{correction}Transcript:\n\n{transcript.text}",
-                generation_config={"response_mime_type": "application/json"},
+            response = client.models.generate_content(
+                model=self._model,
+                contents=f"{correction}Transcript:\n\n{transcript.text}",
+                config={
+                    "system_instruction": EXTRACTION_SYSTEM_PROMPT,
+                    "response_mime_type": "application/json",
+                },
             )
             return response.text
 

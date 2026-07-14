@@ -9,8 +9,11 @@ Design rationale: [docs/superpowers/specs/2026-07-14-transcription-pipeline-desi
 
 ```bash
 pip install -r requirements-dev.txt
-export GEMINI_API_KEY=...   # only needed for real extraction runs
+cp .env.example .env   # then fill in GEMINI_API_KEY (only needed for real extraction runs)
 ```
+
+`.env` is gitignored — the CLI loads it automatically via `python-dotenv`. Never commit a real key;
+`.env.example` holds the placeholder that is safe to commit.
 
 ## Run
 
