@@ -69,7 +69,7 @@ class GeminiExtractor:
     def __init__(
         self,
         client=None,
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-3.1-flash-lite",
         max_retries: int = 3,
         backoff_base_s: float = 1.0,
     ):
