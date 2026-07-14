@@ -3,7 +3,7 @@
 Batch pipeline: audio file → local Whisper transcription → Gemini structured extraction
 (summary, action items, entities) → JSON output.
 
-Design rationale: [docs/superpowers/specs/2026-07-14-transcription-pipeline-design.md](docs/superpowers/specs/2026-07-14-transcription-pipeline-design.md).
+See "Design decisions" below for the rationale behind the major choices.
 
 ## Install
 
